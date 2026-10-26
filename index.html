@@ -878,6 +878,16 @@ body:has(#stage.on) #toasts{top:calc(70px + env(safe-area-inset-top,0px));bottom
 .savecodes h3{font-size:15px}
 .savecodes textarea{width:100%;height:96px;resize:vertical;font:12px/1.4 ui-monospace,SFMono-Regular,Menlo,monospace;background:rgba(4,8,22,.7);color:#cfe3ff;border:1px solid var(--line);border-radius:10px;padding:10px;word-break:break-all}
 .buildtag{font-size:12px;text-align:center;margin:22px 0 4px;letter-spacing:.04em}
+
+/* ===== Ascension multipliers ===== */
+.ascmult{display:grid;grid-template-columns:1.4fr 1fr;gap:18px;align-items:center;margin:18px 0}
+.ascmult p{font-size:13.5px;margin-top:6px;max-width:60ch}
+.amgrid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.am{padding:12px 14px;border-radius:12px;border:1px solid rgba(255,214,140,.35);background:radial-gradient(120% 120% at 0 0,rgba(255,214,140,.12),rgba(8,12,30,.6))}
+.am span{display:block;font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:#ffd68c}
+.am b{display:block;font-size:28px;font-family:var(--display,inherit);margin:4px 0}
+.am i{font-style:normal;font-size:12px;color:var(--dim,#9aa6c0)}
+@media (max-width:760px){.ascmult{grid-template-columns:1fr}}
 </style></head><body>
 <canvas id="sky" aria-hidden="true"></canvas>
 <div id="app"><aside id="side"></aside>
@@ -2290,7 +2300,7 @@ CR.sectorTable=(sec,scan=0)=>{ const k=sec.id+':'+scan; if(!tableCache[k]){ cons
 CR.MAX_SCAN=CR.PART_SLOT_BY.scanner.vals.at(-1); CR.MAX_EFF=CR.PART_SLOT_BY.thrusters.vals.at(-1);
 // Fuel per relic: priced so a basic ship gets back 92% on average. Scanners and thrusters push that past 100%, up to
 // about 140% with the best parts.
-CR.fuelPerRelic=sec=>{ if(sec._fuel) return sec._fuel; const ev=CR.ev(CR.sectorTable(sec,0)); const raw=ev/0.92; const mag=Math.pow(10,Math.floor(Math.log10(raw))-1); sec._fuel=Math.ceil(raw/mag)*mag; return sec._fuel; };
+CR.fuelPerRelic=sec=>{ if(sec._fuel) return sec._fuel; const ev=(CR.evRaw||CR.ev)(CR.sectorTable(sec,0)); const raw=ev/0.92; const mag=Math.pow(10,Math.floor(Math.log10(raw))-1); sec._fuel=Math.ceil(raw/mag)*mag; return sec._fuel; };
 CR.voyageQuote=(sh,sec)=>{ const st=CR.shipStats(sh); const fuel=Math.round(CR.fuelPerRelic(sec)*st.cargo*(1-st.thrusters/100)); const mins=Math.round(sec.mins*(1-st.engine/100)); const ev=CR.ev(CR.sectorTable(sec,st.scanner))*st.cargo;
   return {fuel,mins,ms:mins*60000,cargo:st.cargo,scan:st.scanner,ev,rtp:ev/fuel,ok:st.hull>=sec.range}; };
 CR.launchVoyage=function(shipId,secId){ const S=ensure(), sh=S.ships.find(s=>s.id===shipId), sec=CR.SECTOR_BY[secId]; if(!sh||!sec) return {error:'Not found.'}; if(sh.voyage) return {error:'That ship is already out.'};
@@ -2311,6 +2321,33 @@ const prevExtra=CR.achExtra; CR.achExtra=S=>({...(prevExtra?prevExtra(S):{}),fir
 const baseLoad=CR.load; CR.load=function(){ const S=baseLoad.apply(this,arguments); ensure(); return S; };
 const baseReset=CR.reset; CR.reset=function(){ baseReset.apply(this,arguments); ensure(); };
 CR.NEWS.unshift({date:'Season 11',title:'Station modules, ships and an auto-opener',body:'Crates can now drop Station Modules, permanent upgrades that survive ascension, and ship parts. Build ships in the new Hangar from a hull, an engine, thrusters, a scanner and a cargo hold, then fly them to six deep-space sectors with far rarer odds than crates. On any crate page, the auto-opener keeps opening for you, with a budget and stop rules.'});
+})(typeof window!=='undefined'?window:globalThis);
+
+(function(G){
+const CR=G.CR;
+// ===== Ascension multipliers =====
+// Every ascension permanently raises two base stats, counted from the number of times you have ascended:
+//  - Money: +0.5x per ascension. Multiplies every relic's sell value and income, and discovery bonuses.
+//  - Luck: +10% per ascension, on top of every other source. Luck has no limit.
+// Crate prices are set from the base values when the game loads, so the money multiplier is pure profit on top.
+CR.ASC_MONEY_STEP=0.5; CR.ASC_LUCK_STEP=10;
+CR.ascCount=()=>(CR.S&&CR.S.asc&&CR.S.asc.count)||0;
+CR.moneyMult=(n=CR.ascCount())=>1+CR.ASC_MONEY_STEP*n;
+CR.ascLuck=(n=CR.ascCount())=>CR.ASC_LUCK_STEP*n;
+const baseInst=CR.instValue, baseIncome=CR.incomeValue;
+CR.instValue=x=>Math.floor(baseInst(x)*CR.moneyMult());
+CR.incomeValue=x=>Math.floor(baseIncome(x)*CR.moneyMult());
+CR.evRaw=CR.ev; CR.ev=t=>CR.evRaw(t)*CR.moneyMult();          // what a crate or voyage pays out on average, for you
+const wrap=(name,fn)=>{ const base=CR[name]; if(!base) return; CR[name]=(...a)=>fn(base,...a); };
+wrap('ascDiscoveryMult',b=>b()*CR.moneyMult());
+const basePerks=CR.perks; CR.perks=function(){ const t=basePerks.apply(this,arguments), L=CR.ascLuck(); if(L){ t.luck=Math.round((t.luck+L)*10)/10; t.ascLuck=L; } return t; };
+// Rebuild every crate's odds and average value whenever the multipliers change (load, ascension, reset).
+const refresh=()=>{ if(!CR.S) return; const p=CR.perks(); CR.applyLuck(p.luck,p.freeluck); };
+CR.refreshAscMult=refresh;
+const baseLoad=CR.load; CR.load=function(){ const S=baseLoad.apply(this,arguments); refresh(); return S; };
+const baseAscend=CR.ascend; CR.ascend=function(){ const r=baseAscend.apply(this,arguments); if(!r.error) refresh(); return r; };
+const baseReset=CR.reset; CR.reset=function(){ baseReset.apply(this,arguments); refresh(); };
+CR.NEWS.unshift({date:'Season 14',title:'Every ascension makes you richer and luckier',body:'Ascending now permanently raises your base money multiplier by 0.5× and your luck by 10%, every time. After one ascension your relics sell and earn at 1.5×, after two at 2×, and so on, with luck stacking the same way. Ascensions you have already made count straight away.'});
 })(typeof window!=='undefined'?window:globalThis);
 
 (function(G){ const CR=G.CR;
@@ -3930,11 +3967,13 @@ V.ascension=()=>{ const A=S.asc, pv=CR.stardustPreview(), can=CR.canAscend(), sl
     return `<section class="panel godup ${own?'owned':''}"><div class="sigil" aria-hidden="true">✦</div><h3>${esc(g.name)}</h3><p>${esc(g.desc)}</p>${own?'<span class="ownedtag">Bestowed</span>':`<button class="btn ${aff?'godly':''}" data-a="buygodly" data-v="${g.id}" ${aff?'':'disabled'}>Claim for ${dust(g.cost)}</button>`}</section>`; }).join('');
   return `<section class="aschero"><div class="ascglow"></div><div class="asccopy"><div class="kicker">${A.count?`Ascension ${ROMAN(A.count)}`:'The final threshold'}</div><h1>Ascension</h1><p>Give up everything you have built this run and return stronger. Stardust earned from ascending buys permanent Heavenly and Godly power that never resets.</p></div>
    <div class="ascstats"><div><span>Stardust</span><b>${dust(A.dust)}</b></div><div><span>Ascensions</span><b>${A.count||0}</b></div><div><span>Lifetime Stardust</span><b>${CR.fmt(A.lifetimeDust||0)}</b></div></div></section>
+  <section class="panel ascmult"><div><h2>Ascension bonuses</h2><p class="muted">Every ascension permanently adds <b>+${CR.ASC_MONEY_STEP}×</b> to your money multiplier and <b>+${CR.ASC_LUCK_STEP}%</b> luck. Money multiplies every relic’s sell value and income, and discovery bonuses. Crate prices don’t change, so it all goes into your pocket.</p></div>
+   <div class="amgrid"><div class="am"><span>Money multiplier</span><b>×${CR.moneyMult()}</b><i>After your next ascension: ×${CR.moneyMult(CR.ascCount()+1)}</i></div><div class="am"><span>Ascension luck</span><b>+${CR.ascLuck()}%</b><i>After your next ascension: +${CR.ascLuck(CR.ascCount()+1)}%</i></div></div></section>
   <div class="ascgrid">
    <section class="panel ascnow"><h2>Ascend now</h2>
     <div class="dustcalc"><div><span>Credits earned this run</span><b>${CR.fmt(pv.e)}</b><i>${dust(pv.earned)}</i></div><div><span>Relics registered</span><b>${pv.reg}</b><i>${dust(pv.catalog)}</i></div><div><span>Collections completed</span><b>${pv.done}</b><i>${dust(pv.collections)}</i></div><div class="tot"><span>You would receive</span><b></b><i>${dust(pv.total)}</i></div></div>
     <p class="muted" style="font-size:12.5px;margin-top:8px">Stardust grows with the square root of Credits earned, plus 1 per 20 relics registered and 3 per completed collection.</p>
-    <div class="lose-keep"><div><h4>You lose</h4><ul><li>All Credits and relics</li><li>Levels and XP</li>${CR.hasGodly('memory')?'':'<li>Station upgrades</li>'}<li>Museum displays and expeditions</li>${CR.hasGodly('echo')?'':'<li>Your catalog and collection rewards</li>'}</ul></div><div><h4>You keep</h4><ul><li>Stardust and all ascension upgrades</li><li>Up to ${slots} keepsake relics</li><li>Achievements and lifetime statistics</li>${CR.hasGodly('memory')?'<li>Station upgrades (Memory of Stars)</li>':''}${CR.hasGodly('echo')?'<li>Your catalog (Echoing Catalog)</li>':''}<li>Start with ${cr(CR.ascStartCredits())}</li></ul></div></div>
+    <div class="lose-keep"><div><h4>You lose</h4><ul><li>All Credits and relics</li><li>Levels and XP</li>${CR.hasGodly('memory')?'':'<li>Station upgrades</li>'}<li>Museum displays and expeditions</li>${CR.hasGodly('echo')?'':'<li>Your catalog and collection rewards</li>'}</ul></div><div><h4>You keep</h4><ul><li>Stardust and all ascension upgrades</li><li>Your money and luck bonuses, which grow to ×${CR.moneyMult(CR.ascCount()+1)} and +${CR.ascLuck(CR.ascCount()+1)}%</li><li>Up to ${slots} keepsake relics</li><li>Achievements and lifetime statistics</li>${CR.hasGodly('memory')?'<li>Station upgrades (Memory of Stars)</li>':''}${CR.hasGodly('echo')?'<li>Your catalog (Echoing Catalog)</li>':''}<li>Start with ${cr(CR.ascStartCredits())}</li></ul></div></div>
     <button class="btn ascendbtn lg" data-a="ascend" ${can.ok?'':'disabled'}>Ascend for ${dust(pv.total)}</button>${can.ok?'':`<p class="muted" style="font-size:13px;margin-top:8px">${esc(can.why)}</p>`}
    </section>
    <section class="panel"><div class="spread"><h2>Keepsakes</h2><span class="muted" style="font-size:12.5px">${st.keep.size} of ${slots} chosen</span></div><p class="muted" style="font-size:13px;margin:6px 0 14px">These relics come with you, merge grade included. Everything else is left behind.</p><div class="keeps">${keepTiles}</div>${slots<3?'<p class="muted" style="font-size:12.5px;margin-top:10px">The Keepsake Vault upgrade adds a third slot.</p>':''}</section>
@@ -3946,7 +3985,7 @@ function flashScreen(){ const f=document.createElement('div'); f.className='godf
 function keepPicker(){ const slots=CR.keepSlots(); const best={}; for(const x of S.inv){ const k=x.u; best[k]=x; }
   const list=[...S.inv].sort((a,b)=>CR.RIDX[CR.byId[b.d].rarity]-CR.RIDX[CR.byId[a.d].rarity]||(b.g||0)-(a.g||0)||CR.instValue(b)-CR.instValue(a)).slice(0,120);
   modal(`<h2 style="margin-bottom:6px">Choose keepsakes</h2><p class="muted" style="margin-bottom:14px;font-size:13.5px">Pick up to ${slots} relics to carry through ascension. Your most valuable relics are shown first.</p>${list.length?`<div class="tiles">${list.map(x=>{const d=CR.byId[x.d],rr=R(d.rarity),on=st.keep.has(x.u);return `<button class="tile r${CR.RIDX[d.rarity]} ${on?'sel':''}" style="--rc:${rr.color}" data-a="keep-toggle" data-v="${x.u}"><span class="check"></span><img src="${CR.thumbX(x)}" alt=""><div class="nm">${esc(CR.instName(x))}</div><div class="meta"><span class="rtag" style="--rc:${rr.color}">${rr.sym} ${rr.name}</span>${x.g?`<span class="gradestars g${x.g}">${CR.GRADES[x.g].stars}</span>`:''}</div></button>`;}).join('')}</div>`:'<div class="empty">You have no relics to keep.</div>'}<div class="row" style="justify-content:flex-end;margin-top:16px"><button class="btn primary" data-a="keep-done">Done</button></div>`); }
-async function ascendCinematic(dustN,count){ const stage=$('#stage'); stage.className='on ascstage'; stage.innerHTML=`<canvas class="fx" id="ascfx"></canvas><div class="asctext"><div class="k">Ascension</div><div class="n">${ROMAN(count)}</div><div class="d">+${CR.fmt(dustN)} Stardust</div></div><button class="btn ghost skip" id="ascskip">Continue</button>`;
+async function ascendCinematic(dustN,count){ const stage=$('#stage'); stage.className='on ascstage'; stage.innerHTML=`<canvas class="fx" id="ascfx"></canvas><div class="asctext"><div class="k">Ascension</div><div class="n">${ROMAN(count)}</div><div class="d">+${CR.fmt(dustN)} Stardust</div><div class="d" style="font-size:.6em;opacity:.85;margin-top:6px">Money ×${CR.moneyMult(count)} · Luck +${CR.ascLuck(count)}%</div></div><button class="btn ghost skip" id="ascskip">Continue</button>`;
   CR.sfx.rise(2.4); setTimeout(()=>CR.sfx.boom(),2300); setTimeout(()=>CR.sfx.reveal(9),2400);
   const cv=$('#ascfx'), W=innerWidth,H=innerHeight,dp=devicePixelRatio; cv.width=W*dp; cv.height=H*dp; const x=cv.getContext('2d'); x.scale(dp,dp);
   const ps=[...Array(260)].map(()=>({x:Math.random()*W,y:H+Math.random()*H,v:1+Math.random()*4,s:0.5+Math.random()*2.2,h:40+Math.random()*30}));
@@ -4124,12 +4163,12 @@ V.crate=()=>{
    <div><div class="muted" style="font-size:13px">${esc(c.region)} · Level ${c.level}${c.req?` · ${c.req.registered?CR.fmt(c.req.registered)+' relics registered':''}${c.req.complete?`, ${c.req.complete} collection${c.req.complete>1?'s':''} completed`:''}`:''}</div><h1 style="margin:4px 0 8px">${esc(c.name)}</h1><p class="muted">${esc(c.blurb)}</p>
     <div style="margin:16px 0 6px;font-family:var(--display);font-size:24px;color:var(--gold)">${c.free?'Free · every ${CR.fmtTime(CR.freeCooldown()*1000)}':cr(c.cost)}</div>
     <div class="oddsbar" aria-hidden="true">${byR.map(r=>`<i style="width:${Math.max(c.probs[r.id],0.6)}%;background:${r.color}"></i>`).join('')}</div>
-    <div class="oddleg">${byR.map(r=>`<span class="rtag" style="--rc:${r.color}">${r.sym} ${r.name} <span class="tab" style="color:var(--ink);font-weight:500">${CR.pct(c.probs[r.id]/100)}</span></span>`).join('')}</div>${CR.luck?`<p class="perknote">These odds include <b>+${CR.luck}% luck</b> from your museum, upgrades and modules. Without it: ${byR.map(r=>`${r.name} ${CR.pct(c.baseProbs[r.id]/100)}`).join(', ')}.</p>`:''}
+    <div class="oddleg">${byR.map(r=>`<span class="rtag" style="--rc:${r.color}">${r.sym} ${r.name} <span class="tab" style="color:var(--ink);font-weight:500">${CR.pct(c.probs[r.id]/100)}</span></span>`).join('')}</div>${CR.luck?`<p class="perknote">These odds include <b>+${CR.luck}% luck</b> from your museum, upgrades, modules and ascensions. Without it: ${byR.map(r=>`${r.name} ${CR.pct(c.baseProbs[r.id]/100)}`).join(', ')}.</p>`:''}
     <div class="row" style="margin-top:20px">${btn(1)}${c.free?'':btn(5)+btn(10)}</div>
     <p class="bonusnote">Bonus drops per opening: Station Module ${CR.pct(CR.moduleChance(c))} · ship part ${CR.pct(CR.partChance(c))}</p>
     ${autoPanel(c)}
     ${chk.ok?'':`<p style="margin-top:10px;color:#ff9ac0;font-size:14px">${esc(chk.why)}</p>`}
-    <p class="varnote">Every relic also has its own chance to be a variant: ${CR.VARIANTS.map(v=>`<span class="vtext v-${v.id}">${v.name}</span> 1 in ${CR.fmt(Math.round(1/v.p))} (${v.mult}× value)`).join(', ')}. The same for every crate.</p><p class="muted" style="font-size:13px;margin-top:12px">Average sell value per opening: ${cr(c.ev)}${c.free?'':` (<b style="color:${c.ev>=c.cost?'#7fe0a0':'inherit'}">${(c.ev/c.cost*100).toFixed(1)}% of the price</b>${c.ev>=c.cost?', a profit on average':''})`}. This is a long-run average, not a promise for any single opening.${CR.luck?` Your ${CR.luck}% luck is included.`:''}</p>
+    <p class="varnote">Every relic also has its own chance to be a variant: ${CR.VARIANTS.map(v=>`<span class="vtext v-${v.id}">${v.name}</span> 1 in ${CR.fmt(Math.round(1/v.p))} (${v.mult}× value)`).join(', ')}. The same for every crate.</p><p class="muted" style="font-size:13px;margin-top:12px">Average sell value per opening: ${cr(c.ev)}${c.free?'':` (<b style="color:${c.ev>=c.cost?'#7fe0a0':'inherit'}">${(c.ev/c.cost*100).toFixed(1)}% of the price</b>${c.ev>=c.cost?', a profit on average':''})`}. This is a long-run average, not a promise for any single opening.${CR.luck||CR.moneyMult()>1?` Includes ${[CR.luck?`your ${CR.luck}% luck`:'',CR.moneyMult()>1?`your ×${CR.moneyMult()} money multiplier`:''].filter(Boolean).join(' and ')}.`:''}</p>
    </div></section>
   <div class="spread" style="margin:26px 0 12px"><h2>Contents · ${t.length} items</h2><span class="muted" style="font-size:13px">Chance shown is per opening</span></div>
   <div class="tiles odds-tiles">${rows.map(r=>{const d=CR.byId[r.id],rr=R(d.rarity),known=S.discovered[d.id];return `<button class="tile r${CR.RIDX[d.rarity]}" style="--rc:${rr.color}" data-a="inspect-def" data-v="${d.id}"><div class="badges"><span>${known?'':'<span class="badge">Unregistered</span>'}</span></div><img src="${CR.thumb(d.id)}" alt="" loading="lazy"><div class="nm">${esc(d.name)}</div><div class="meta"><span class="pct tab">${CR.pct(r.p)}</span><span class="val">${cr(d.value)}</span></div></button>`;}).join('')}</div>
@@ -4282,7 +4321,7 @@ function perkPanel(){ const p=CR.perks(), keys=CR.PERK_ORDER;
   const have={}; for(const x of S.inv){ if(!CR.PERKS[x.d]||p.src.includes(x.d)) continue; if(!have[x.d]||(x.g||0)>(have[x.d].g||0)) have[x.d]=x; }
   const idle=Object.values(have).sort((a,b)=>CR.RIDX[CR.byId[b.d].rarity]-CR.RIDX[CR.byId[a.d].rarity]||(b.g||0)-(a.g||0)).slice(0,8);
   return `<section class="panel perkpanel"><div class="spread"><h2>Active perks</h2><span class="muted" style="font-size:13px">${p.src.length} relic${p.src.length===1?'':'s'} contributing</span></div>
-   <div class="perkgrid">${keys.filter(k=>p[k]).map(k=>{const T=CR.PERK_TYPES[k], v=p[k], capped=p.raw[k]>T.cap; return `<div class="perk${v?' on':''}"><div class="spread"><b>${T.name}</b><span class="tab">${v?`${T.sign}${v}%`:'None'}</span></div><div class="bar"><i style="width:${isFinite(T.max)?Math.min(100,v/T.max*100):Math.min(100,v)}%"></i></div><p class="muted">${T.desc}</p><p class="muted" style="font-size:12px">Museum ${T.sign}${Math.round(p.ore[k]*10)/10}%${capped?` (museum limit ${T.cap}% reached)`:''}${p.up[k]?`, upgrades ${T.sign}${p.up[k]}%`:''}${p.mods&&p.mods[k]?`, modules ${T.sign}${p.mods[k]}%`:''}. ${isFinite(T.max)?`Limit ${T.sign}${T.max}%.`:'No limit.'}</p></div>`;}).join('')}</div>
+   <div class="perkgrid">${keys.filter(k=>p[k]).map(k=>{const T=CR.PERK_TYPES[k], v=p[k], capped=p.raw[k]>T.cap; return `<div class="perk${v?' on':''}"><div class="spread"><b>${T.name}</b><span class="tab">${v?`${T.sign}${v}%`:'None'}</span></div><div class="bar"><i style="width:${isFinite(T.max)?Math.min(100,v/T.max*100):Math.min(100,v)}%"></i></div><p class="muted">${T.desc}</p><p class="muted" style="font-size:12px">Museum ${T.sign}${Math.round(p.ore[k]*10)/10}%${capped?` (museum limit ${T.cap}% reached)`:''}${p.up[k]?`, upgrades ${T.sign}${p.up[k]}%`:''}${p.mods&&p.mods[k]?`, modules ${T.sign}${p.mods[k]}%`:''}${k==='luck'&&p.ascLuck?`, ascensions ${T.sign}${p.ascLuck}%`:''}. ${isFinite(T.max)?`Limit ${T.sign}${T.max}%.`:'No limit.'}</p></div>`;}).join('')}</div>
    ${keys.some(k=>p[k])?'':'<p class="muted" style="margin-top:10px">No perks active yet. Put an ore or any Rare-or-better relic on a pedestal.</p>'}${keys.some(k=>!p[k])?`<p class="muted" style="font-size:13px;margin-top:12px">Not active yet: ${keys.filter(k=>!p[k]).map(k=>`<span title="${esc(CR.PERK_TYPES[k].desc)}" style="text-decoration:underline dotted">${CR.PERK_TYPES[k].name}</span>`).join(', ')}.</p>`:''}
    ${idle.length?`<p class="muted" style="font-size:13px;margin-top:12px">Your strongest relics not on display: ${idle.map(x=>`${esc(CR.instName(x))} (${perkText(x.d,x.g)})`).join('; ')}.</p>`:''}
   </section>`; }
@@ -4525,5 +4564,5 @@ CR.boot=function(){ S=CR.load(); CR.applyTheme(); CR.reduced=S.settings.reduced;
   addEventListener('beforeunload',()=>CR.save()); };
 })(window);
 
-CR.BUILD='2026-10-26T15:00Z';
+CR.BUILD='2026-10-26T16:43Z';
 CR.boot();</script></body></html>
