@@ -877,6 +877,7 @@ body:has(#stage.on) #toasts{top:calc(70px + env(safe-area-inset-top,0px));bottom
 /* ===== Save codes ===== */
 .savecodes h3{font-size:15px}
 .savecodes textarea{width:100%;height:96px;resize:vertical;font:12px/1.4 ui-monospace,SFMono-Regular,Menlo,monospace;background:rgba(4,8,22,.7);color:#cfe3ff;border:1px solid var(--line);border-radius:10px;padding:10px;word-break:break-all}
+.buildtag{font-size:12px;text-align:center;margin:22px 0 4px;letter-spacing:.04em}
 </style></head><body>
 <canvas id="sky" aria-hidden="true"></canvas>
 <div id="app"><aside id="side"></aside>
@@ -2347,6 +2348,7 @@ CR.applyImport=function(save){ try{ const cur=localStorage.getItem(CR.SAVE_KEY);
   CR.blockSaves=true; setTimeout(()=>location.reload(),150); return {ok:true}; };
 CR.hasPreImportBackup=()=>{ try{ return !!localStorage.getItem(CR.SAVE_KEY+'-before-import'); }catch(e){ return false; } };
 CR.restorePreImport=function(){ try{ const b=localStorage.getItem(CR.SAVE_KEY+'-before-import'); if(!b) return {error:'There is no earlier save to go back to.'}; localStorage.setItem(CR.SAVE_KEY,b); localStorage.removeItem(CR.SAVE_KEY+'-before-import'); }catch(e){ return {error:'This browser wouldn’t restore it.'}; } CR.blockSaves=true; setTimeout(()=>location.reload(),150); return {ok:true}; };
+CR.NEWS.unshift({date:'Now playing',title:'Cosmic Relics has its own home',body:'The game now lives at cosmicrelicss.netlify.app, and every update arrives there automatically. Moving from another copy? Make a save code there under Settings → Save data, then load it here. Your build date is shown at the bottom of Settings.'});
 const baseSave=CR.save; CR.save=function(){ if(CR.blockSaves) return true; return baseSave.apply(this,arguments); };
 })(typeof window!=='undefined'?window:globalThis);
 
@@ -4217,7 +4219,8 @@ V.settings=()=>{ const s=S.settings; const tog=(k,l,d)=>`<label class="spread" s
    <h3 style="margin-top:18px">Load a save code</h3><textarea id="codein" spellcheck="false" placeholder="Paste a code that starts with CR2."></textarea>
    <div class="row" style="margin-top:8px"><button class="btn" data-a="codeload">Load save</button>${CR.hasPreImportBackup()?'<button class="btn ghost" data-a="codeundo">Go back to the save from before the last load</button>':''}</div>
    <p class="muted" style="font-size:12.5px;margin-top:8px">Loading replaces the game in this browser. The current one is kept, so you can go back once.</p>
-   <div class="row" style="margin-top:18px;padding-top:14px;border-top:1px solid var(--line)"><button class="btn danger" data-a="reset">Erase progress</button></div></section></div>`; };
+   <div class="row" style="margin-top:18px;padding-top:14px;border-top:1px solid var(--line)"><button class="btn danger" data-a="reset">Erase progress</button></div></section></div>
+  <p class="muted buildtag">Cosmic Relics · build ${CR.BUILD?new Date(CR.BUILD).toLocaleString(undefined,{month:'short',day:'numeric',year:'numeric',hour:'numeric',minute:'2-digit'}):'dev'}</p>`; };
 
 // ---------- modals ----------
 function modal(html,cls=''){ const m=$('#modal'); m.innerHTML=`<div class="dlg ${cls}" role="dialog" aria-modal="true"><button class="x" data-a="close" aria-label="Close">✕</button>${html}</div>`; m.classList.add('on'); m.querySelector('.x').focus(); }
@@ -4522,4 +4525,5 @@ CR.boot=function(){ S=CR.load(); CR.applyTheme(); CR.reduced=S.settings.reduced;
   addEventListener('beforeunload',()=>CR.save()); };
 })(window);
 
+CR.BUILD='2026-10-26T15:00Z';
 CR.boot();</script></body></html>
