@@ -1659,7 +1659,8 @@ CR.openCase=function(caseId,n=1){
     if(total){ S.credits-=total; S.stats.spent+=total; }
     const tx=log('purchase',-total,`${cs.id} x${n}`);
     const results=[];
-    const rolls=cs.free&&CR.freeDropCount?n*CR.freeDropCount():n;
+    // relics per opening: 1 normally; the free drop, ascension upgrades and events can make it more
+    let rolls=0; for(let i=0;i<n;i++) rolls+=CR.relicsPerOpen?CR.relicsPerOpen(cs):(cs.free&&CR.freeDropCount?CR.freeDropCount():1);
     for(let i=0;i<rolls;i++){
       const id=CR.pick(CR.tables[cs.id]);
       results.push(addItem(id,cs.id,tx));
@@ -2348,6 +2349,44 @@ const baseLoad=CR.load; CR.load=function(){ const S=baseLoad.apply(this,argument
 const baseAscend=CR.ascend; CR.ascend=function(){ const r=baseAscend.apply(this,arguments); if(!r.error) refresh(); return r; };
 const baseReset=CR.reset; CR.reset=function(){ baseReset.apply(this,arguments); refresh(); };
 CR.NEWS.unshift({date:'Season 14',title:'Every ascension makes you richer and luckier',body:'Ascending now permanently raises your base money multiplier by 0.5× and your luck by 10%, every time. After one ascension your relics sell and earn at 1.5×, after two at 2×, and so on, with luck stacking the same way. Ascensions you have already made count straight away.'});
+})(typeof window!=='undefined'?window:globalThis);
+
+(function(G){
+const CR=G.CR;
+// ===== More ascension power =====
+// Heavenly upgrades (levelled, bought with Stardust) and Godly upgrades (one-off) that push the game toward overpowered.
+const dbl=(base)=>l=>Math.round(base*Math.pow(2,l));
+CR.HEAVENLY.push(
+ {id:'bountiful',name:'Bountiful Crates',max:10,cost:dbl(4),desc:'Every crate you open can give extra relics.',fx:l=>{ if(!l) return '1 relic per opening'; const e=0.2*l, w=Math.floor(e+1e-9), f=Math.round((e-w)*100); return `${w?`+${w} relic${w>1?'s':''}`:''}${f?`${w?' and a ':'A '}${f}% chance of ${w?'one more':'an extra relic'}`:''} per opening`; }},
+ {id:'fortune',name:'Celestial Fortune',max:10,cost:dbl(3),desc:'Raises your money multiplier, permanently.',fx:l=>`×${(1+0.25*l).toFixed(2)} money multiplier`},
+ {id:'providence',name:'Providence',max:10,cost:dbl(3),desc:'Permanent luck on every crate.',fx:l=>`+${15*l}% luck`},
+ {id:'timeflow',name:'Timeflow',max:8,cost:dbl(2),desc:'Your relics earn more income every second.',fx:l=>`+${50*l}% relic income`},
+ {id:'mutagen',name:'Mutagenic Light',max:6,cost:dbl(3),desc:'Merges mutate more often.',fx:l=>`+${25*l}% mutation chance`},
+ {id:'blessing',name:'Variant Blessing',max:8,cost:dbl(4),desc:'Every relic is likelier to roll as a variant.',fx:l=>`×${(1+0.25*l).toFixed(2)} variant chance`}
+);
+CR.GODLY.push(
+ {id:'cornucopia',name:'Cornucopia',cost:300,desc:'Every crate gives twice as many relics.'},
+ {id:'midas',name:'Midas Touch',cost:400,desc:'Doubles your money multiplier.'},
+ {id:'fatebreaker',name:'Fatebreaker',cost:500,desc:'+100% luck on every crate, forever.'},
+ {id:'gallery',name:'The Eternal Gallery',cost:250,desc:'Six more museum pedestals.'},
+ {id:'armada',name:'The Endless Armada',cost:350,desc:'Two more hangar bays, and every voyage finishes twice as fast.'}
+);
+const L=id=>CR.ascLevel(id), has=id=>CR.hasGodly(id);
+// relics per crate opening
+CR.relicsPerOpen=cs=>{ let n=cs.free&&CR.freeDropCount?CR.freeDropCount():1; const e=0.2*L('bountiful'); n+=Math.floor(e); if(CR.rand()<e%1) n++; if(has('cornucopia')) n*=2; return n; };
+const wrap=(name,fn)=>{ const base=CR[name]; if(!base) return; CR[name]=(...a)=>fn(base,...a); };
+wrap('moneyMult',(b,...a)=>b(...a)*(1+0.25*L('fortune'))*(has('midas')?2:1));
+const basePerks=CR.perks; CR.perks=function(){ const t=basePerks.apply(this,arguments), extra=15*L('providence')+(has('fatebreaker')?100:0); if(extra){ t.luck=Math.round((t.luck+extra)*10)/10; t.ascLuck=(t.ascLuck||0)+extra; } return t; };
+wrap('yieldMult',(b,...a)=>b(...a)*(a.length?1:1+0.5*L('timeflow')));
+wrap('mutationTable',(b,g)=>{ const k=1+0.25*L('mutagen'); return b(g).map(r=>({v:r.v,p:r.p*k})); });
+// Variant Blessing: the same single-draw ladder as crates, with every variant's chance multiplied.
+const baseRoll=CR.rollVariant; CR.rollVariant=function(){ const k=1+0.25*L('blessing'); if(k===1) return baseRoll(); const r=CR.rand(); let acc=0; for(const v of [...CR.VARIANTS].reverse()){ acc+=v.p*k; if(r<acc) return v.id; } return null; };
+wrap('museumSlots',b=>b()+(has('gallery')?6:0));
+wrap('hangarBays',b=>b()+(has('armada')?2:0));
+wrap('voyageQuote',(b,sh,sec)=>{ const q=b(sh,sec); if(has('armada')){ q.ms=Math.round(q.ms/2); q.mins=Math.round(q.mins/2); } return q; });
+// money and luck changes rebuild the crate tables right away
+for(const n of ['buyHeavenly','buyGodly']) wrap(n,(b,id)=>{ const r=b(id); if(!r.error&&CR.refreshAscMult) CR.refreshAscMult(); return r; });
+CR.NEWS.unshift({date:'Season 15',title:'Six Heavenly and five Godly upgrades',body:'Bountiful Crates gives extra relics from every crate, up to three per opening. Celestial Fortune, Providence, Timeflow, Mutagenic Light and Variant Blessing push money, luck, income, mutations and variants further. The new Godly upgrades: Cornucopia (twice the relics from every crate), Midas Touch (double money), Fatebreaker (+100% luck), the Eternal Gallery (six more pedestals) and the Endless Armada (two more hangar bays, voyages twice as fast).'});
 })(typeof window!=='undefined'?window:globalThis);
 
 (function(G){ const CR=G.CR;
@@ -3823,9 +3862,9 @@ CR.playOpening=async function(cs,result){
   CR.sfx.reveal(ri); revealFX(stage,ri,rc); if(result.inst&&result.inst.vr) variantFX(stage,result.inst.vr);
   return {stage,ri,rc};
 };
-CR.playBatch=async function(cs,results){
+CR.playBatch=async function(cs,results,opened=results.length){
   const stage=$('#stage'); skipping=CR.S.settings.skip||CR.S.settings.reduced; stage.className='on';
-  stage.innerHTML=`<div class="title">${cs.name.toUpperCase()} &times; ${results.length}</div><button class="btn ghost skip" id="skipbtn">Skip animation</button>`;
+  stage.innerHTML=`<div class="title">${cs.name.toUpperCase()}${opened>1?` &times; ${opened}`:''}${results.length!==opened?` · ${results.length} RELICS`:''}</div><button class="btn ghost skip" id="skipbtn">Skip animation</button>`;
   $('#skipbtn').onclick=()=>CR.skipAnim();
   const wp=skipping?null:warp(cs); if(wp) wp.set(0.25);
   try{ await cineIntro(cs,true); }catch(e){ console.error(e); } if(wp) wp.set(1.6);
@@ -4102,13 +4141,13 @@ V.merge=()=>{
       <div class="spread"><b>${esc((cur.name?cur.name+' ':'')+(g.vr?CR.VARIANT_BY[g.vr].name+' ':'')+d.name)}${g.mut?' <span class="badge mutb">Mutated</span>':''}</b>${cur.stars?`<span class="gradestars g${g.g}">${cur.stars}</span>`:''}</div>
       <div class="row" style="gap:8px;margin:4px 0 8px"><span class="rtag" style="--rc:${rr.color}">${rr.sym} ${rr.name}</span><span class="muted" style="font-size:13px">${n} merge-ready ${n===1?'copy':'copies'}</span></div>
       <div class="mergeflow"><span>${CR.MERGE_N} × ${cr(d.value*CR.MERGE_N**g.g)}</span><span class="arrow">→</span><span><b>${ng.name}</b> <span class="gradestars g${g.g+1}">${ng.stars}</span> worth ${cr(d.value*CR.MERGE_N**(g.g+1))}</span></div>
-      <p class="mutline">🧬 <b>${mch>=0.0995?Math.round(mch*100)+'%':(mch*100).toFixed(1)+'%'}</b> chance to mutate${g.vr?` into a variant above ${esc(CR.VARIANT_BY[g.vr].name)}`:''}</p>
+      <p class="mutline">🧬 <b>${mch>=0.995?'100%':mch>=0.0995?Math.round(mch*100)+'%':(mch*100).toFixed(1)+'%'}</b> chance to mutate${g.vr?` into a variant above ${esc(CR.VARIANT_BY[g.vr].name)}`:''}</p>
       ${CR.PERKS[d.id]?`<p class="muted" style="font-size:12.5px;margin-top:6px">Perk ${perkText(d.id,g.g)} becomes <span style="color:var(--cyan)">${perkText(d.id,g.g+1)}</span></p>`:''}
       <div class="row" style="margin-top:10px">${times?`<button class="btn primary sm" data-a="merge" data-v="${g.d}:${g.g}:1:${g.mk}">Merge 3 into 1</button>${times>1?`<button class="btn sm" data-a="merge" data-v="${g.d}:${g.g}:${times}:${g.mk}">Merge all (${times})</button>`:''}`:`<span class="muted" style="font-size:13px">Need ${CR.MERGE_N-n} more</span>`}</div>
     </div></section>`; };
   return `<p class="muted" style="margin-bottom:6px;max-width:74ch">Merge ${CR.MERGE_N} copies of the same relic at the same grade into one of the next grade: Polished, then Pristine, then Radiant. The new copy is worth exactly what the three were together, and its museum perk gets stronger (1.5×, 2× and 3×).</p>
   <p class="muted" style="margin-bottom:12px;font-size:13px">Locked copies and copies on display are never used. Lock anything you want to keep as it is.</p>
-  <details class="panel mutinfo"><summary><b>🧬 Merges can mutate.</b> <span class="muted">${Math.round(CR.mutationChance(1)*100)}% for Polished, ${Math.round(CR.mutationChance(2)*100)}% for Pristine, ${Math.round(CR.mutationChance(3)*100)}% for Radiant. Tap for the odds.</span></summary>
+  <details class="panel mutinfo"><summary><b>🧬 Merges can mutate.</b> <span class="muted">${Math.round(Math.min(1,CR.mutationChance(1))*100)}% for Polished, ${Math.round(Math.min(1,CR.mutationChance(2))*100)}% for Pristine, ${Math.round(Math.min(1,CR.mutationChance(3))*100)}% for Radiant. Tap for the odds.</span></summary>
    <p class="muted" style="font-size:13px;margin:10px 0">A mutation turns the new relic into a variant, at far better odds than a crate. It’s a full variant: it sells for the variant’s value and gets its museum perk and income boost. A relic that is already a variant can only mutate into a rarer one.</p>
    <div class="tablewrap"><table class="t"><thead><tr><th>Variant</th><th class="num">From a crate</th><th class="num">Polished merge</th><th class="num">Pristine</th><th class="num">Radiant</th></tr></thead><tbody>${CR.VARIANTS.map(v=>`<tr><td><span class="vtext v-${v.id}">${v.sym} ${v.name}</span></td><td class="num muted">1 in ${CR.fmt(Math.round(1/v.p))}</td>${[1,2,3].map(gr=>{ const p=CR.mutationTable(gr).find(r=>r.v.id===v.id).p; return `<td class="num">1 in ${CR.fmt(Math.round(1/p))}</td>`; }).join('')}</tr>`).join('')}</tbody></table></div></details>
   ${ready.length?`<div class="spread" style="margin-bottom:10px"><h2>Ready to merge</h2>${ready.length>1?`<button class="btn sm" data-a="mergeall">Merge everything (${ready.reduce((a,g)=>a+Math.floor(g.items.length/CR.MERGE_N),0)})</button>`:''}</div><div class="mergegrid">${ready.map(card).join('')}</div>`:`<section class="panel empty" style="padding:30px"><h2 style="margin-bottom:6px">Nothing to merge yet</h2><p class="muted">Collect ${CR.MERGE_N} copies of any relic to merge them. Cheap crates and free drops are the quickest way to stack duplicates.</p></section>`}
@@ -4301,7 +4340,7 @@ async function doOpen(id,n){
     $('#rinsp').onclick=()=>{ done(); inspect(r.def.id,r.inst.u); };
     const ag=$('#ragain'); if(ag) ag.onclick=()=>{ CR.closeStage(); doOpen(id,1); };
   } else {
-    const {stage}=await CR.playBatch(c,res.results); unveil(); const tot=res.results.reduce((s,r)=>s+r.def.value,0);
+    const {stage}=await CR.playBatch(c,res.results,n); unveil(); const tot=res.results.reduce((s,r)=>s+r.def.value,0);
     const bar=document.createElement('div'); bar.className='acts reveal'; bar.style.cssText='flex-direction:row;gap:10px;margin-top:22px;max-width:none';
     const spare=res.results.filter(r=>!r.first&&!r.inst.vr&&CR.RIDX[r.def.rarity]<CR.RIDX[S.settings.warnFrom]);
     const bon=res.results.reduce((s,r)=>s+(r.bonus||0),0); bar.innerHTML=`${bonusHTML(res.bonus)}<div style="width:100%;margin-bottom:10px;font-family:var(--display);font-size:18px">Total value ${cr(tot)}${bon?` <span style="color:var(--cyan);font-size:15px">plus ${CR.fmt(bon)} in discovery bonuses</span>`:''}</div><button class="btn primary" id="bkeep">Keep all</button>${spare.length?`<button class="btn" id="bsell">Sell repeats below ${R(S.settings.warnFrom).name} · ${CR.fmt(spare.reduce((s,r)=>s+r.def.value,0))}</button>`:''}${CR.canOpen(c,n).ok?`<button class="btn ghost" id="bagain">Open ×${n} again</button>`:''}`;
@@ -4564,5 +4603,5 @@ CR.boot=function(){ S=CR.load(); CR.applyTheme(); CR.reduced=S.settings.reduced;
   addEventListener('beforeunload',()=>CR.save()); };
 })(window);
 
-CR.BUILD='2026-10-26T16:43Z';
+CR.BUILD='2026-10-26T16:52Z';
 CR.boot();</script></body></html>
